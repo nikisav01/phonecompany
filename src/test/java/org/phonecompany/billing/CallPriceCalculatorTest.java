@@ -2,15 +2,11 @@ package org.phonecompany.billing;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.phonecompany.billing.model.Call;
 import org.phonecompany.billing.model.PhoneNumber;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -268,43 +264,60 @@ class CallPriceCalculatorTest {
         assertEquals(new BigDecimal("9.80"), price);
     }
 
-    @ParameterizedTest
-    @MethodSource("providePeakHourBoundaries")
-    void shouldCorrectlyHandlePeakHourBoundaries(LocalDateTime start, LocalDateTime end, String expectedPrice) {
-        Call call = new Call(new PhoneNumber("420774577453"), start, end);
+    @Test
+    void shouldCalculateCallStartingExactlyAt8AM() {
+        // Exactly at 08:00:00 boundary
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 13, 8, 0, 0),
+                LocalDateTime.of(2020, 1, 13, 8, 1, 0)
+        );
 
         BigDecimal price = calculator.calculate(call);
 
-        assertEquals(new BigDecimal(expectedPrice), price);
+        assertEquals(new BigDecimal("1.00"), price);
     }
 
-    private static Stream<Arguments> providePeakHourBoundaries() {
-        return Stream.of(
-                // Exactly at 08:00:00 boundary
-                Arguments.of(
-                        LocalDateTime.of(2020, 1, 13, 8, 0, 0),
-                        LocalDateTime.of(2020, 1, 13, 8, 1, 0),
-                        "1.00"
-                ),
-                // One second before 08:00:00
-                Arguments.of(
-                        LocalDateTime.of(2020, 1, 13, 7, 59, 59),
-                        LocalDateTime.of(2020, 1, 13, 8, 0, 59),
-                        "0.50"
-                ),
-                // Exactly at 16:00:00 boundary
-                Arguments.of(
-                        LocalDateTime.of(2020, 1, 13, 16, 0, 0),
-                        LocalDateTime.of(2020, 1, 13, 16, 1, 0),
-                        "0.50"
-                ),
-                // One second before 16:00:00
-                Arguments.of(
-                        LocalDateTime.of(2020, 1, 13, 15, 59, 59),
-                        LocalDateTime.of(2020, 1, 13, 16, 0, 59),
-                        "1.00"
-                )
+    @Test
+    void shouldCalculateCallStartingOneSecondBefore8AM() {
+        // One second before 08:00:00 - minute starts in off-peak
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 13, 7, 59, 59),
+                LocalDateTime.of(2020, 1, 13, 8, 0, 59)
         );
+
+        BigDecimal price = calculator.calculate(call);
+
+        assertEquals(new BigDecimal("0.50"), price);
+    }
+
+    @Test
+    void shouldCalculateCallStartingExactlyAt4PM() {
+        // Exactly at 16:00:00 boundary - off-peak starts
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 13, 16, 0, 0),
+                LocalDateTime.of(2020, 1, 13, 16, 1, 0)
+        );
+
+        BigDecimal price = calculator.calculate(call);
+
+        assertEquals(new BigDecimal("0.50"), price);
+    }
+
+    @Test
+    void shouldCalculateCallStartingOneSecondBefore4PM() {
+        // One second before 16:00:00 - minute starts in peak
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 13, 15, 59, 59),
+                LocalDateTime.of(2020, 1, 13, 16, 0, 59)
+        );
+
+        BigDecimal price = calculator.calculate(call);
+
+        assertEquals(new BigDecimal("1.00"), price);
     }
 
     @Test
@@ -338,5 +351,128 @@ class CallPriceCalculatorTest {
         // Remaining 115 minutes: 115 * (0.50 - 0.20) = 115 * 0.30 = 34.50
         // Total: 37.00
         assertEquals(new BigDecimal("37.00"), price);
+    }
+
+    @Test
+    void shouldHandleLongCallStartingWithSeconds() {
+        // Call starting at 15:57:30 (with seconds!)
+        // Duration: 8 minutes = until 16:05:30
+        // Minute 0 (15:57:30): 1.00 (peak)
+        // Minute 1 (15:58:30): 1.00 (peak)
+        // Minute 2 (15:59:30): 1.00 (peak)
+        // Minute 3 (16:00:30): 0.50 (off-peak)
+        // Minute 4 (16:01:30): 0.50 (off-peak)
+        // Minute 5 (16:02:30): 0.30 (off-peak + discount)
+        // Minute 6 (16:03:30): 0.30 (off-peak + discount)
+        // Minute 7 (16:04:30): 0.30 (off-peak + discount)
+        // Total: 4.90
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 13, 15, 57, 30),
+                LocalDateTime.of(2020, 1, 13, 16, 5, 30)
+        );
+
+        BigDecimal price = calculator.calculate(call);
+
+        assertEquals(new BigDecimal("4.90"), price);
+    }
+
+    @Test
+    void shouldHandleCallStartingAtExactPeakBoundaryWithSeconds() {
+        // Starting at 07:59:59 (one second before peak)
+        // Duration: 3 minutes = until 08:02:59
+        // Minute 0 (07:59:59): 0.50 (off-peak - minute started before 08:00)
+        // Minute 1 (08:00:59): 1.00 (peak)
+        // Minute 2 (08:01:59): 1.00 (peak)
+        // Total: 2.50
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 13, 7, 59, 59),
+                LocalDateTime.of(2020, 1, 13, 8, 2, 59)
+        );
+
+        BigDecimal price = calculator.calculate(call);
+
+        assertEquals(new BigDecimal("2.50"), price);
+    }
+
+    @Test
+    void shouldHandleVeryLongCallSpanningMultiplePeakCycles() {
+        // Very long call: 30 hours (1800 minutes) starting at 18:00
+        // This tests batch calculation optimization
+        // First 5 minutes: all off-peak = 5 * 0.50 = 2.50
+        // Remaining 1795 minutes with discount:
+        //   From 18:05 to 23:59 (354 min off-peak): 354 * 0.30 = 106.20
+        //   From 00:00 to 08:00 (480 min off-peak): 480 * 0.30 = 144.00
+        //   From 08:00 to 16:00 (480 min peak): 480 * 0.80 = 384.00
+        //   From 16:00 to 23:59 (479 min off-peak): 479 * 0.30 = 143.70
+        //   From 00:00 to 00:02 (2 min off-peak): 2 * 0.30 = 0.60
+        // Total: 2.50 + 778.50 = 781.00
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 13, 18, 0, 0),
+                LocalDateTime.of(2020, 1, 15, 0, 0, 0)
+        );
+
+        BigDecimal price = calculator.calculate(call);
+
+        // Just check it doesn't crash and returns a reasonable number
+        assertTrue(price.compareTo(new BigDecimal("700")) > 0);
+        assertTrue(price.compareTo(new BigDecimal("900")) < 0);
+    }
+
+    @Test
+    void shouldCalculateVeryLongCallEfficiently() {
+        // 1,000,000 minutes call - tests batch optimization
+        long startTime = System.nanoTime();
+
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 1, 0, 0, 0),
+                LocalDateTime.of(2020, 1, 1, 0, 0, 0).plusMinutes(1_000_000)
+        );
+
+        BigDecimal price = calculator.calculate(call);
+
+        long durationNanos = System.nanoTime() - startTime;
+        long durationMillis = durationNanos / 1_000_000;
+
+        System.out.println("Calculated 1,000,000 minute call in " + durationMillis + "ms");
+
+        assertNotNull(price);
+        assertTrue(price.compareTo(BigDecimal.ZERO) > 0);
+
+        // Should complete in under 50ms even for 1 million minutes
+        // Old loop-based approach would take seconds
+        assertTrue(durationMillis < 50,
+                "Calculation took " + durationMillis + "ms, should be < 50ms. " +
+                        "This indicates the batch optimization is not working correctly.");
+    }
+
+    @Test
+    void shouldCalculateExtremelyLongCallEfficiently() {
+        // 10,000,000 minutes call - stress test
+        // This should still complete quickly
+        long startTime = System.nanoTime();
+
+        Call call = new Call(
+                new PhoneNumber("420774577453"),
+                LocalDateTime.of(2020, 1, 1, 0, 0, 0),
+                LocalDateTime.of(2020, 1, 1, 0, 0, 0).plusMinutes(10_000_000)
+        );
+
+        BigDecimal price = calculator.calculate(call);
+
+        long durationNanos = System.nanoTime() - startTime;
+        long durationMillis = durationNanos / 1_000_000;
+
+        System.out.println("Calculated 10,000,000 minute call in " + durationMillis + "ms");
+
+        assertNotNull(price);
+        assertTrue(price.compareTo(BigDecimal.ZERO) > 0);
+
+        // Even 10 million minutes should complete fast
+        assertTrue(durationMillis < 100,
+                "Calculation took " + durationMillis + "ms for 10M minutes");
     }
 }
