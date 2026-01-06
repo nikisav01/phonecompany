@@ -5,7 +5,7 @@ Implementation of a telephone billing system that calculates call charges based 
 ## Requirements
 
 - Java 21
-- Gradle 8.x
+- Gradle
 
 ## Building the Project
 ```bash
@@ -15,10 +15,4 @@ Implementation of a telephone billing system that calculates call charges based 
 ## Running Tests
 ```bash
 ./gradlew test
-```
-
-View test report:
-```bash
-./gradlew testReport
-open build/reports/tests/test/index.html
 ```

@@ -32,11 +32,3 @@ tasks.test {
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
 }
-
-// Optional: Generate test report
-tasks.register("testReport") {
-    dependsOn("test")
-    doLast {
-        println("Test reports available at: ${project.buildDir}/reports/tests/test/index.html")
-    }
-}
